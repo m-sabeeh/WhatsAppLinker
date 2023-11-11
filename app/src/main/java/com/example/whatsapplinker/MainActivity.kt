@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -42,6 +45,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -51,15 +55,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import com.example.whatsapplinker.ui.theme.WhatsAppLinkerTheme
 import com.google.i18n.phonenumbers.PhoneNumberUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
                                 .padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Spacer(modifier = Modifier.weight(1F))
+                            Spacer(modifier = Modifier.weight(0.40F))
                             val context = LocalContext.current
                             var phoneNumber by remember {
                                 mutableStateOf(
@@ -109,40 +109,10 @@ class MainActivity : ComponentActivity() {
                             var regionToUse by remember(data) {
                                 mutableStateOf(data.region)
                             }
-
-                            PhoneNumberInput(
-                                value = phoneNumber,
-                                onValueChange = {
-                                    phoneNumber = it
-                                },
-                                region = regionToUse
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            var countryCodeAndName by remember(data) {
-                                mutableStateOf(
-                                    data.textToDisplay
-                                )
-                            }
                             var countryCode by remember(data) {
                                 mutableStateOf(data.countryCode)
                             }
-                            val filteredCountries: List<CountryData> by viewModel.filteredCountriesData.collectAsState()
-                            EditableExposedDropdownMenu(
-                                countriesToShow = filteredCountries,
-                                value = countryCodeAndName,
-                                onValueChange = {
-                                    countryCodeAndName = it
-                                    viewModel.searchCountries(it)
-                                    countryCode = -1
-                                },
-                                onCountrySelected = { countryData ->
-                                    countryCode = countryData.countryCode
-                                    countryCodeAndName = countryData.textToDisplay
-                                    regionToUse = countryData.region
-                                },
-                                codeWrong = countryCode == -1
-                            )
-                            Spacer(modifier = Modifier.weight(0.25F))
+
                             val phoneNumberError = !isValidPhoneNumber(phoneNumber, regionToUse)
                             val formattedNumber = getFormattedNumber(phoneNumber, regionToUse)
                             val statusText = buildString {
@@ -167,6 +137,36 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                             Spacer(modifier = Modifier.height(16.dp))
+                            PhoneNumberInput(
+                                value = phoneNumber,
+                                onValueChange = {
+                                    phoneNumber = it
+                                },
+                                region = regionToUse
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            var countryCodeAndName by remember(data) {
+                                mutableStateOf(
+                                    data.textToDisplay
+                                )
+                            }
+                            val filteredCountries: List<CountryData> by viewModel.filteredCountriesData.collectAsState()
+                            EditableExposedDropdownMenu(
+                                countriesToShow = filteredCountries,
+                                value = countryCodeAndName,
+                                onValueChange = {
+                                    countryCodeAndName = it
+                                    viewModel.searchCountries(it)
+                                    countryCode = -1
+                                },
+                                onCountrySelected = { countryData ->
+                                    countryCode = countryData.countryCode
+                                    countryCodeAndName = countryData.textToDisplay
+                                    regionToUse = countryData.region
+                                },
+                                codeWrong = countryCode == -1
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
                             Button(
                                 colors = ButtonDefaults.textButtonColors(
                                     containerColor = Color(0xFF25D366),
@@ -186,7 +186,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Text(text = "Open WhatsApp")
                             }
-                            Spacer(modifier = Modifier.weight(1F))
+                            Spacer(modifier = Modifier.weight(0.60F))
                         }
                     }
                 }
@@ -333,22 +333,43 @@ fun EditableExposedDropdownMenu(
         )
 
         if (countriesToShow.isNotEmpty()) {
+            val sizeOfOneItem by remember {
+                mutableStateOf(50.dp)
+            }
+            val configuration = LocalConfiguration.current
+            val screenHeight50 by remember {
+                val screenHeight = configuration.screenHeightDp.dp
+                mutableStateOf(screenHeight / 2)
+            }
+            val height by remember(countriesToShow.size) {
+                val itemsSize = sizeOfOneItem * countriesToShow.size
+                mutableStateOf(minOf(itemsSize, screenHeight50))
+            }
             ExposedDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = {
                     expanded = false
                 }
             ) {
-                countriesToShow.forEach { selectionOption ->
-                    DropdownMenuItem(
-                        onClick = {
-                            onCountrySelected(selectionOption)
-                            expanded = false
-                        },
-                        text = {
-                            Text(text = selectionOption.textToDisplay)
-                        }
-                    )
+                LazyColumn(
+                    modifier = Modifier
+                        .width(500.dp)
+                        .height(height)
+                ) {
+                    items(
+                        items = countriesToShow,
+                        key = { it.region },
+                        contentType = { it }) { countryData ->
+                        DropdownMenuItem(
+                            onClick = {
+                                onCountrySelected(countryData)
+                                expanded = false
+                            },
+                            text = {
+                                Text(text = countryData.textToDisplay)
+                            }
+                        )
+                    }
                 }
             }
         }
