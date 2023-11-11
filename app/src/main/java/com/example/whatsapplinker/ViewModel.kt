@@ -1,5 +1,6 @@
 package com.example.whatsapplinker
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.i18n.phonenumbers.PhoneNumberUtil
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -45,16 +47,15 @@ class MainViewModel : ViewModel() {
     }.stateIn(viewModelScope, SharingStarted.Lazily, countriesData.value)
 
     private val currentCountryIso = MutableStateFlow<String>("US")
-    private val USAData = realm.query<CountryData>(CountryData::class)
-        .query("region == $0", "US")
-        .find()
-        .first()
-    val currentCountryData = currentCountryIso.map {
-        realm.query<CountryData>(CountryData::class)
-            .query("region == $0", it)
-            .find()
-            .first()
-    }.stateIn(viewModelScope, SharingStarted.Lazily, USAData)
+    val currentCountryData: StateFlow<CountryData> =
+        combine(countriesData, currentCountryIso) { _, iso ->
+            val results = realm.query<CountryData>(CountryData::class)
+                .query("region == $0", iso)
+                .first()
+                .find()
+            Log.d("TAG>>>", "current country = ${results?.countryCode}, iso = $iso")
+            return@combine results ?: CountryData()
+        }.stateIn(viewModelScope, SharingStarted.Lazily, CountryData())
 
     init {
         val regions = PhoneNumberUtil.getInstance().supportedRegions
@@ -69,14 +70,14 @@ class MainViewModel : ViewModel() {
                 region = region
             )
         }
-        //add data to Realm
-        realm.writeBlocking {
-            countries.forEach { countryData ->
-                copyToRealm(instance = countryData, updatePolicy = UpdatePolicy.ALL)
-            }
-        }
 
         viewModelScope.launch {
+            //add data to Realm
+            realm.write {
+                countries.forEach { countryData ->
+                    copyToRealm(instance = countryData, updatePolicy = UpdatePolicy.ALL)
+                }
+            }
             countriesDataResults.collect() {
                 when (it) {
                     is InitialResults -> {

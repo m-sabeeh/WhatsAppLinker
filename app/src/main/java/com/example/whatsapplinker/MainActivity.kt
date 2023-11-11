@@ -74,15 +74,6 @@ class MainActivity : ComponentActivity() {
         val countryISO = telephonyManager.networkCountryIso.uppercase()
         viewModel.updateCurrentCountry(countryISO)
 
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.currentCountryData.collectLatest { countryData ->
-
-
-                }
-            }
-        }
-
         fun getStringFromIntent(): String {
             return intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.getCharSequenceExtra(
                 Intent.EXTRA_PROCESS_TEXT
@@ -115,7 +106,7 @@ class MainActivity : ComponentActivity() {
                                     unformattedNumber
                                 )
                             }
-                            var regionToUse by remember {
+                            var regionToUse by remember(data) {
                                 mutableStateOf(data.region)
                             }
 
@@ -127,12 +118,12 @@ class MainActivity : ComponentActivity() {
                                 region = regionToUse
                             )
                             Spacer(modifier = Modifier.height(16.dp))
-                            var countryCodeAndName by remember {
+                            var countryCodeAndName by remember(data) {
                                 mutableStateOf(
                                     data.textToDisplay
                                 )
                             }
-                            var countryCode by remember() {
+                            var countryCode by remember(data) {
                                 mutableStateOf(data.countryCode)
                             }
                             val filteredCountries: List<CountryData> by viewModel.filteredCountriesData.collectAsState()
