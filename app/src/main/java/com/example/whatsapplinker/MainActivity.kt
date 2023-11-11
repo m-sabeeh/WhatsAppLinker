@@ -29,7 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,25 +51,37 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.whatsapplinker.ui.theme.WhatsAppLinkerTheme
 import com.google.i18n.phonenumbers.PhoneNumberUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
-    data class PhoneData(
-        val unformattedNumber: String,
-        val textToShow: String,
-        val countryCode: Int,
-        val region: String
-    )
+    private val viewModel by lazy { ViewModelProvider(this)[MainViewModel::class.java] }
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        val countryISO = telephonyManager.networkCountryIso.uppercase()
+        viewModel.updateCurrentCountry(countryISO)
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.currentCountryData.collectLatest { countryData ->
+
+
+                }
+            }
+        }
 
         fun getStringFromIntent(): String {
             return intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.getCharSequenceExtra(
@@ -77,27 +89,10 @@ class MainActivity : ComponentActivity() {
             )?.toString() ?: ""
         }
 
-        val data = getStringFromIntent().let {
-            //format number
-            val unformattedNumber = it.replace("[^0-9]".toRegex(), "")
-            val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            val countryISO = telephonyManager.networkCountryIso.uppercase()
-            val currentRegion =
-                PhoneNumberUtil.getInstance().supportedRegions.firstOrNull { region ->
-                    countryISO == region
-                } ?: "US"
-            val countryCode = PhoneNumberUtil.getInstance().getCountryCodeForRegion(currentRegion)
-            val country = Locale("", currentRegion).displayCountry
-            val textToShow = "$country (+$countryCode)"
-            PhoneData(
-                unformattedNumber = unformattedNumber,
-                textToShow = textToShow,
-                countryCode = countryCode,
-                region = currentRegion
-            )
-        }
+        val unformattedNumber = getStringFromIntent().replace("[^0-9]".toRegex(), "")
 
         setContent {
+            val data by viewModel.currentCountryData.collectAsState()
             WhatsAppLinkerTheme {
                 // A surface container using the 'background' color from the theme
                 Scaffold {
@@ -117,7 +112,7 @@ class MainActivity : ComponentActivity() {
                             val context = LocalContext.current
                             var phoneNumber by remember {
                                 mutableStateOf(
-                                    data.unformattedNumber
+                                    unformattedNumber
                                 )
                             }
                             var regionToUse by remember {
@@ -134,16 +129,19 @@ class MainActivity : ComponentActivity() {
                             Spacer(modifier = Modifier.height(16.dp))
                             var countryCodeAndName by remember {
                                 mutableStateOf(
-                                    data.textToShow
+                                    data.textToDisplay
                                 )
                             }
                             var countryCode by remember() {
                                 mutableStateOf(data.countryCode)
                             }
+                            val filteredCountries: List<CountryData> by viewModel.filteredCountriesData.collectAsState()
                             EditableExposedDropdownMenu(
+                                countriesToShow = filteredCountries,
                                 value = countryCodeAndName,
                                 onValueChange = {
                                     countryCodeAndName = it
+                                    viewModel.searchCountries(it)
                                     countryCode = -1
                                 },
                                 onCountrySelected = { countryData ->
@@ -242,13 +240,6 @@ fun PhoneNumberInput(value: String, onValueChange: (String) -> Unit, region: Str
         return isError
     }
 
-    val countryISORemembered by rememberSaveable {
-        val telephonyManager =
-            context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-        val countryISO = telephonyManager.networkCountryIso.uppercase()
-        mutableStateOf(countryISO)
-    }
-
     OutlinedTextField(
         modifier = Modifier
             .fillMaxWidth()
@@ -286,7 +277,7 @@ fun PhoneNumberInput(value: String, onValueChange: (String) -> Unit, region: Str
             val labelText = if (isError) "Phone Number*" else "Phone Number"
             Text(text = labelText)
         },
-        visualTransformation = PhoneNumberVisualTransformation(countryISORemembered),
+        visualTransformation = PhoneNumberVisualTransformation(region),
     )
 }
 
@@ -304,39 +295,16 @@ fun isValidPhoneNumber(
     )
 }
 
-data class CountryData(
-    val country: String,
-    val countryCode: Int,
-    val textToDisplay: String,
-    val region: String
-)
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun EditableExposedDropdownMenu(
+    countriesToShow: List<CountryData>,
     value: String,
     onValueChange: (String) -> Unit,
     onCountrySelected: (CountryData) -> Unit,
     codeWrong: Boolean = false
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
-    val regions = PhoneNumberUtil.getInstance().supportedRegions
-    val options by rememberSaveable {
-        val map = regions.map { region ->
-            val countryCode = PhoneNumberUtil.getInstance().getCountryCodeForRegion(region)
-            val country = Locale("", region).displayCountry
-            val textToDisplay = "$country (+$countryCode)"
-            CountryData(
-                country = country,
-                countryCode = countryCode,
-                textToDisplay = textToDisplay,
-                region = region
-            )
-        }.sortedBy {
-            it.country
-        }
-        mutableStateOf(map)
-    }
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(
         modifier = Modifier.fillMaxWidth(),
@@ -372,36 +340,15 @@ fun EditableExposedDropdownMenu(
             },
             colors = ExposedDropdownMenuDefaults.textFieldColors()
         )
-        var query by remember(value) {
-            mutableStateOf(value.trim())
-        }
-//        value.useDebounce {
-//            query = it
-//        }
 
-        // filter options based on text field value
-        val filteringOptions by remember(query, options) {
-            derivedStateOf {
-                if (query.isEmpty()) {
-                    options
-                } else {
-                    val filtered = options.filter {
-                        it.textToDisplay.contains(query, ignoreCase = true)
-                    }
-                    filtered.ifEmpty {
-                        options
-                    }
-                }
-            }
-        }
-        if (filteringOptions.isNotEmpty()) {
+        if (countriesToShow.isNotEmpty()) {
             ExposedDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = {
                     expanded = false
                 }
             ) {
-                filteringOptions.forEach { selectionOption ->
+                countriesToShow.forEach { selectionOption ->
                     DropdownMenuItem(
                         onClick = {
                             onCountrySelected(selectionOption)
